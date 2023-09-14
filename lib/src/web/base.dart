@@ -5,7 +5,6 @@ import 'package:js/js.dart';
 import 'package:js/js_util.dart';
 import 'package:mobile_scanner/src/enums/camera_facing.dart';
 import 'package:mobile_scanner/src/objects/barcode.dart';
-import 'package:mobile_scanner/src/web/media.dart';
 
 class JsLibrary {
   /// The name of global variable where library is stored.
@@ -71,24 +70,80 @@ mixin InternalStreamCreation on WebBarcodeReaderBase {
   int get videoHeight => video.videoHeight;
 
   Future<html.MediaStream?> initMediaStream(CameraFacing cameraFacing) async {
+    // Get preferred camera with the highest f-number
+    final deviceId = await _getPreferredBackCameraId();
+
     // Check if browser supports multiple camera's and set if supported
-    final Map? capabilities =
-        html.window.navigator.mediaDevices?.getSupportedConstraints();
-    final Map<String, dynamic> constraints;
-    if (capabilities != null && capabilities['facingMode'] as bool) {
-      constraints = {
-        'video': VideoOptions(
-          facingMode:
-              cameraFacing == CameraFacing.front ? 'user' : 'environment',
-        ),
-      };
-    } else {
-      constraints = {'video': true};
-    }
-    final stream =
-        await html.window.navigator.mediaDevices?.getUserMedia(constraints);
+    final Map? capabilities = html.window.navigator.mediaDevices?.getSupportedConstraints();
+
+    final Map<String, dynamic> constraints = {
+      'video': {
+        if (capabilities != null && capabilities['facingMode'] as bool) 'facingMode': cameraFacing == CameraFacing.front ? 'user' : 'environment',
+        if (deviceId != null) 'deviceId': deviceId,
+      },
+    };
+    final stream = await html.window.navigator.mediaDevices?.getUserMedia(constraints);
+
     return stream;
   }
+
+  Future<String?> _getPreferredBackCameraId() async {
+    const maxAperture = 4000;
+    final devices = await html.window.navigator.mediaDevices?.enumerateDevices() ?? [];
+    String? deviceId;
+    int currentAperture = maxAperture;
+    try {
+      for (final device in devices) {
+        if (device is html.MediaDeviceInfo && device.kind == 'videoinput' && device.label != null && device.label!.toLowerCase().contains('back')) {
+          final value = device.label!.split(', ').first.split(' ').last;
+          if ((int.tryParse(value) ?? maxAperture) < currentAperture) {
+            currentAperture = int.tryParse(value) ?? maxAperture;
+            deviceId = device.deviceId;
+          }
+        }
+      }
+      return deviceId;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // @override
+  // Future<void> setScale({required double scale}) async {
+  //   try {
+  //     final track = localMediaStream?.getVideoTracks();
+  //     if (track == null || track.isEmpty) {
+  //       return;
+  //     }
+  //     final capabilities = track.first.getCapabilities();
+  //     if (capabilities == {} || capabilities['zoom'] == null) {
+  //       return;
+  //     }
+  //     final minZoom = (capabilities['zoom'] as Map)['min'] as double;
+  //     final maxZoom = (capabilities['zoom'] as Map)['max'] as double;
+  //     final step = (capabilities['zoom'] as Map)['step'] as double;
+  //     final zoom = _calculateZoom(scale, minZoom, maxZoom, step);
+  //     await track.first.applyConstraints({
+  //       'advanced': [
+  //         {'zoom': zoom},
+  //       ],
+  //     });
+  //   } catch (e) {
+  //     return;
+  //   }
+  // }
+
+  // double _calculateZoom(double percent, double minZoom, double maxZoom, double step) {
+  //   if (percent < 0.0 || percent > 1.0) {
+  //     throw ArgumentError('Percentage must be in the range of 0 to 1.');
+  //   }
+  //   final double zoomRange = maxZoom - minZoom;
+  //   final double zoom = minZoom + percent * zoomRange;
+  //   final double adjustedZoom = (zoom / step).round() * step;
+  //   final double finalZoom = adjustedZoom.clamp(minZoom, maxZoom);
+  //   final String parsedZoom = finalZoom.toStringAsFixed(2);
+  //   return double.parse(parsedZoom);
+  // }
 
   void prepareVideoElement(html.VideoElement videoSource);
 
@@ -147,8 +202,8 @@ mixin InternalTorchDetection on InternalStreamCreation {
       final track = localMediaStream?.getVideoTracks();
       await track?.first.applyConstraints({
         'advanced': [
-          {'torch': enabled},
-        ],
+          {'torch': enabled}
+        ]
       });
     }
   }
@@ -168,8 +223,7 @@ extension PhotoCapabilitiesExtension on PhotoCapabilities {
   external List<dynamic>? get _fillLightMode;
 
   /// Returns an array of available fill light options. Options include auto, off, or flash.
-  List<String> get fillLightMode =>
-      _fillLightMode?.cast<String>() ?? <String>[];
+  List<String> get fillLightMode => _fillLightMode?.cast<String>() ?? <String>[];
 }
 
 @JS('ImageCapture')
